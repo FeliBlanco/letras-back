@@ -70,7 +70,8 @@ router.post('/', async (req, res) => {
         const nuevoUsuario = new Usuario({
             nombre,
             email,
-            password
+            password,
+            saldo:14000
         });
 
         const response = await nuevoUsuario.save()

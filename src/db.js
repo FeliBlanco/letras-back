@@ -1,8 +1,9 @@
 import mongoose from 'mongoose'
 
 const connectMongoDB = async () => {
+  console.log(process.env.DB_URL)
     try {
-      await mongoose.connect('mongodb://localhost:27017/letras', {
+      await mongoose.connect(process.env.DB_URL, {
         useNewUrlParser: true,
         useUnifiedTopology: true,
       });

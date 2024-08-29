@@ -1,6 +1,9 @@
 import express from 'express'
 import cors from 'cors'
 import { createServer } from "http";
+import {config} from 'dotenv'
+
+config()
 
 
 import connectMongoDB from './db.js';

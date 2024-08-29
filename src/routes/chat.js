@@ -24,7 +24,7 @@ router.post('/', isLogged, async(req, res) => {
         } = req.body;
 
         const fecha = new Date();
-        const new_chat = {userid: req.user.id, message, fecha}
+        const new_chat = {userid: req.user.id, username:req.user.nombre, message, fecha}
         messages.push(new_chat)
 
         sendSocket("chat", new_chat)

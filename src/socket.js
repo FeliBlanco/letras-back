@@ -5,7 +5,7 @@ let io = null;
 
 export function conectarSocket(httpServer) {
     io = new Server(httpServer, {allowEIO3: true, cors: {
-        origin: ["http://localhost:5173"]
+        origin: ["http://localhost:5173", "http://ec2-18-206-120-192.compute-1.amazonaws.com/home", "http://localhost"]
       }});
     io.on("connection", (socket) => {
         if(socket?.handshake?.query?.userid) {

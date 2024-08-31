@@ -11,8 +11,19 @@ const generateToken = (user) => jwt.sign({ id: user._id, email: user.email }, 'f
 
 const clientMP = new MercadoPagoConfig({accessToken: "TEST-2102130027432464-083020-c451f6f2832a7264546f972f96b257e3-544629529"});
 
+router.post('/notify_compra', async (req, res) => {
+    try {
+        console.log("NOT POST")
+        console.log(req.body)
+        res.send()
+    }
+    catch(err) {
+        res.status(503).send()
+    }
+})
 router.get('/notify_compra', async (req, res) => {
     try {
+        console.log("NOT GET")
         console.log(req.query)
         res.send()
     }

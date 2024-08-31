@@ -13,18 +13,33 @@ const clientMP = new MercadoPagoConfig({accessToken: "TEST-2102130027432464-0830
 
 router.post('/notify_compra', async (req, res) => {
     try {
-        console.log("NOT POST")
-        console.log(req.body)
-        res.send()
-    }
-    catch(err) {
-        res.status(503).send()
-    }
-})
-router.get('/notify_compra', async (req, res) => {
-    try {
-        console.log("NOT GET")
-        console.log(req.query)
+        const {
+            action,
+            type,
+            data
+        } = req.body;
+        if(action) {
+            if(action == "payment.created" && type == "payment") {
+                const payment_id = data.id;
+
+                const find_pay = await Compra.findOne({payment_id});
+                if(!find_pay) {
+                    const pay = new Payment(clientMP);
+                    const response = await pay.get({id: payment_id});
+                    if(response) {
+                        if(response.status == "approved") {
+                            const new_pay = new Compra({
+                                user: response.metadata.userid,
+                                saldo: response.metadata.saldo,
+                                payment_id: parseInt(payment_id)
+                            }).save();
+                            await Usuario.updateOne({_id: response.metadata.userid}, { $inc: { saldo: response.metadata.saldo } })
+                            console.log("SE INFORMÓ UN PAGO")
+                        }
+                    }
+                }
+            }
+        }
         res.send()
     }
     catch(err) {

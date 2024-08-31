@@ -2,14 +2,81 @@ import { Router } from 'express';
 import Usuario from '../models/user.js';
 import jwt from 'jsonwebtoken'
 import isLogged from '../middleware/isLogged.js';
-import { MercadoPagoConfig, Preference } from 'mercadopago'
+import { MercadoPagoConfig, Preference, Payment } from 'mercadopago'
+import Compra from '../models/compras.js';
 
 const router = Router();
 
 const generateToken = (user) => jwt.sign({ id: user._id, email: user.email }, 'feliblanco123');
 
-const clientMP = new MercadoPagoConfig({accessToken: "APP_USR-2102130027432464-083020-16e624c9994ec01ce112aa698a612cb0-544629529"});
+const clientMP = new MercadoPagoConfig({accessToken: "TEST-2102130027432464-083020-c451f6f2832a7264546f972f96b257e3-544629529"});
 
+router.get('/notify_compra', async (req, res) => {
+    try {
+        console.log(req.query)
+        res.send()
+    }
+    catch(err) {
+        res.status(503).send()
+    }
+})
+
+router.post('/compra_completa', async(req, res) => {
+    try {
+        const {
+            payment_id
+        } = req.body;
+
+        if(payment_id) {
+            const pay = new Payment(clientMP);
+            const response = await pay.get({id: payment_id});
+            if(response) {
+                if(response.status == "approved") {
+                    const find_pay = await Compra.findOne({payment_id});
+                    if(find_pay) {
+                        res.status(403).send({message:"url_used"})
+                    } else {
+                        const new_pay = new Compra({
+                            user: response.metadata.userid,
+                            saldo: response.metadata.saldo,
+                            payment_id: parseInt(payment_id)
+                        }).save();
+                        await Usuario.updateOne({_id: response.metadata.userid}, { $inc: { saldo: response.metadata.saldo } })
+                        console.log(new_pay)
+                        //console.log(response)
+                        res.send("OK")
+                    }
+                }
+            } else {
+                res.status(503).send()
+            }
+        } else {
+            res.status(503).send()
+        }
+    }
+    catch(err) {
+        console.log(err)
+        res.status(503).send()
+    }
+})
+router.post('/compra_completa', isLogged, async(req, res) => {
+    try {
+        const {
+            payment_id
+        } = req.body;
+
+        if(payment_id) {
+            const pay = new Payment(clientMP);
+            const response = await pay.get({id: payment_id});
+            console.log(response)
+        }
+        res.send()
+    }
+    catch(err) {
+        console.log(err)
+        res.status(503).send()
+    }
+})
 
 router.get('/compra_saldo', async(req, res) => {
     try {
@@ -21,6 +88,7 @@ router.get('/compra_saldo', async(req, res) => {
         res.status(503).send()
     }
 })
+
 router.post('/create_preference', isLogged, async (req, res) => {
     try {
         const {
@@ -41,11 +109,16 @@ router.post('/create_preference', isLogged, async (req, res) => {
                 }
             ],
             back_urls: {
-                success: "http://localhost",
+                success: "http://localhost:5173/cargacompleta",
                 failure: "http://localhos",
                 pending: "ec2-18-206-120-192.compute-1.amazonaws.com:3000/user/compra_saldo"
             },
-            auto_return:"approved"
+            auto_return:"approved",
+            notification_url:"http://ec2-18-206-120-192.compute-1.amazonaws.com:3000/user/notify_compra",
+            metadata: {
+                saldo,
+                userid: req.user.id
+            }
         };
 
         const result = await preference.create({body});

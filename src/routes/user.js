@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken'
 import isLogged from '../middleware/isLogged.js';
 import { MercadoPagoConfig, Preference, Payment } from 'mercadopago'
 import Compra from '../models/compras.js';
+import { sendSocketToUser } from '../socket.js';
 
 const router = Router();
 
@@ -47,79 +48,13 @@ router.post('/notify_compra', async (req, res) => {
     }
 })
 
-router.post('/compra_completa', async(req, res) => {
-    try {
-        const {
-            payment_id
-        } = req.body;
-
-        if(payment_id) {
-            const pay = new Payment(clientMP);
-            const response = await pay.get({id: payment_id});
-            if(response) {
-                if(response.status == "approved") {
-                    const find_pay = await Compra.findOne({payment_id});
-                    if(find_pay) {
-                        res.status(403).send({message:"url_used"})
-                    } else {
-                        const new_pay = new Compra({
-                            user: response.metadata.userid,
-                            saldo: response.metadata.saldo,
-                            payment_id: parseInt(payment_id)
-                        }).save();
-                        await Usuario.updateOne({_id: response.metadata.userid}, { $inc: { saldo: response.metadata.saldo } })
-                        console.log(new_pay)
-                        //console.log(response)
-                        res.send("OK")
-                    }
-                }
-            } else {
-                res.status(503).send()
-            }
-        } else {
-            res.status(503).send()
-        }
-    }
-    catch(err) {
-        console.log(err)
-        res.status(503).send()
-    }
-})
-router.post('/compra_completa', isLogged, async(req, res) => {
-    try {
-        const {
-            payment_id
-        } = req.body;
-
-        if(payment_id) {
-            const pay = new Payment(clientMP);
-            const response = await pay.get({id: payment_id});
-            console.log(response)
-        }
-        res.send()
-    }
-    catch(err) {
-        console.log(err)
-        res.status(503).send()
-    }
-})
-
-router.get('/compra_saldo', async(req, res) => {
-    try {
-        console.log(req.query)
-        console.log(req.params)
-        res.send()
-    }
-    catch(err) {
-        res.status(503).send()
-    }
-})
-
 router.post('/create_preference', isLogged, async (req, res) => {
     try {
         const {
             saldo
         } = req.body;
+
+        if(!saldo || saldo < 1000) return res.status(503).send()
 
         console.log("PREFERENCE")
 
@@ -136,7 +71,7 @@ router.post('/create_preference', isLogged, async (req, res) => {
             ],
             back_urls: {
                 success: "http://localhost:5173/cargacompleta",
-                failure: "http://localhos",
+                failure: "http://localhost:5173/",
                 pending: "ec2-18-206-120-192.compute-1.amazonaws.com:3000/user/compra_saldo"
             },
             auto_return:"approved",

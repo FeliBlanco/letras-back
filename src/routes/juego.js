@@ -2,11 +2,68 @@ import { Router } from 'express';
 import isLogged from '../middleware/isLogged.js';
 import Usuario from '../models/user.js';
 import { sendSocket, sendSocketToUser } from '../socket.js';
+import Juego from '../models/juego.js';
 
 const router = Router();
 
-const letras = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h','i'];
-const precios = [12000, 13000, 12800, 14000, 16000, 14500, 19000, 15500, 18000, 16000, 12700, 12000, 14000, 15000];
+let ganancias = 25000;
+
+const PREMIOS = {
+    menor: 10000,
+    medio: 13000,
+    alto: 20000
+}
+
+const precio_letra = 2000;
+const ganancia_minima = 20000;
+
+let cartas_info = [
+    {
+        letra: 'A',
+        precio: PREMIOS.menor,
+        probabilidad: 0.4
+    },
+    {
+        letra: 'B',
+        precio: PREMIOS.medio,
+        probabilidad: 0.4
+    },
+    {
+        letra: 'C',
+        precio: PREMIOS.medio,
+        probabilidad: 1
+    },
+    {
+        letra: 'D',
+        precio: PREMIOS.alto,
+        probabilidad:0.2
+    },
+    {
+        letra: 'E',
+        precio: PREMIOS.menor,
+        probabilidad: 0.6
+    },
+    {
+        letra: 'F',
+        precio: PREMIOS.alto,
+        probabilidad: 0.3
+    },
+    {
+        letra: 'G',
+        precio: PREMIOS.menor,
+        probabilidad: 0.5
+    },
+    {
+        letra: 'H',
+        precio: PREMIOS.medio,
+        probabilidad: 0.8
+    },
+    {
+        letra:'I',
+        precio: PREMIOS.menor,
+        probabilidad: 1
+    }
+]
 
 
 let letras_juego = null;
@@ -15,6 +72,15 @@ let id_partida = null;
 
 let buscando_letra = false;
 let letra_elegida = "";
+
+(async ()=> {
+    const response = await Juego.find()
+    if(response.length == 0) {
+        new Juego({
+            ganancias: 0
+        }).save();
+    }
+})()
 
 router.get('/', async (req, res) => {
     try {
@@ -35,13 +101,10 @@ router.post('/jugar', isLogged, async (req, res) => {
         if(letras_juego[index].userid != 0) {
             return res.status(400).send({message:'index_ocupado'});
         }
-        if(userdata.saldo < 2000) {
+        if(userdata.saldo < precio_letra) {
             return res.status(400).send({message:'saldo_insuficiente'});
         }
-
-        const precio = 2000;
-
-        const nuevo_saldo = userdata.saldo - precio;
+        const nuevo_saldo = userdata.saldo - precio_letra;
 
         await Usuario.updateOne({_id: userdata._id}, {saldo: nuevo_saldo})
 
@@ -63,8 +126,35 @@ router.post('/jugar', isLogged, async (req, res) => {
     }
 })
 
+function ajustarProbabilidades(ganancia_total) {
+    // Calcula cuánto falta para alcanzar la ganancia mínima
+    const diferencia = ganancia_minima - ganancia_total;
+
+    // Ajusta las probabilidades basadas en la diferencia
+    cartas_info = cartas_info.map(carta => {
+        let nueva_probabilidad = carta.probabilidad;
+
+        if (carta.precio === PREMIOS.alto) {
+            // Disminuir la probabilidad de premios altos si la ganancia está cerca de la ganancia mínima
+            nueva_probabilidad -= diferencia > 0 ? 0.05 : -0.05;
+        } else if (carta.precio === PREMIOS.menor) {
+            // Aumentar la probabilidad de premios menores si la ganancia está cerca de la ganancia mínima
+            nueva_probabilidad += diferencia > 0 ? 0.05 : -0.05;
+        } else if (carta.precio === PREMIOS.medio) {
+            // Ajuste menor para premios medios
+            nueva_probabilidad += diferencia > 0 ? 0.02 : -0.02;
+        }
+
+        // Limita las probabilidades entre 0 y 1
+        nueva_probabilidad = Math.max(0, Math.min(1, nueva_probabilidad));
+
+        return { ...carta, probabilidad: nueva_probabilidad };
+    });
+}
+
 const generarLetras = () => {
-    return letras.map(i => ({userid:0, marcador:0, ganador:false, username:"", name: i, precio: precios[Math.floor(Math.random() * (precios.length - 1))]}))
+    ajustarProbabilidades(ganancias)
+    return cartas_info.map(i => ({userid:0, marcador:0, ganador:false, username:"", name: i.letra, precio: i.precio, probabilidad: i.probabilidad}))
 }
 
 const comenzarJuego = () => {
@@ -90,30 +180,94 @@ function buscarLetra(partida) {
 }
 
 async function elegirLetra(partida) {
-    console.log("Elegir letra")
+    console.log("Elegir letra");
     buscando_letra = false;
-    const letra_index = Math.floor(Math.random() * letras_juego.length);
-    letras_juego[letra_index].marcador ++;
-    letra_elegida = letras_juego[letra_index].name
-    if(letras_juego[letra_index].marcador >= 4) {
-        letras_juego[letra_index].ganador = true;
-        sendSocket('elegirletra', {letra: letra_elegida});
-        sendSocket('ganador', {index:letra_index, userid: letras_juego[letra_index].userid});
 
-        const user = await Usuario.findOne({_id: letras_juego[letra_index].userid});
-        if(user) {
-            const nuevo_saldo = user.saldo + letras_juego[letra_index].precio;
 
-            await Usuario.updateOne({_id: user._id}, {saldo: nuevo_saldo});
-            sendSocketToUser(user._id, "actualizardata", {saldo: nuevo_saldo})
+    const posibilidad = Math.random() * 100;
+
+    const cartas_precio_minimo = letras_juego.filter(j => j.precio == PREMIOS.menor);
+    const cartas_precio_medio = letras_juego.filter(j => j.precio == PREMIOS.medio);
+    const cartas_precio_maximo = letras_juego.filter(j => j.precio == PREMIOS.alto);
+
+    let letra_index = null;
+    let letra_el = null;
+
+    if(ganancias < ganancia_minima) {
+        if(posibilidad < 40) {
+            const ind = Math.floor(Math.random() * cartas_precio_minimo.length);
+            letra_el = cartas_precio_minimo[ind].name;
+        } else if(posibilidad < 80) {
+            const ind = Math.floor(Math.random() * cartas_precio_medio.length);
+            letra_el = cartas_precio_medio[ind].name;
+        } else {
+            const ind = Math.floor(Math.random() * cartas_precio_maximo.length);
+            letra_el = cartas_precio_maximo[ind].name;    
         }
-
-
-        setTimeout(restartGame, 5000)
+    } else {
+        if(posibilidad < 20) {
+            const ind = Math.floor(Math.random() * cartas_precio_minimo.length);
+            letra_el = cartas_precio_minimo[ind].name;
+        } else if(posibilidad < 50) {
+            const ind = Math.floor(Math.random() * cartas_precio_medio.length);
+            letra_el = cartas_precio_medio[ind].name;
+        } else {
+            const ind = Math.floor(Math.random() * cartas_precio_maximo.length);
+            letra_el = cartas_precio_maximo[ind].name;    
+        }
     }
-    else {
-        sendSocket('elegirletra', {letra: letra_elegida})
-        setTimeout(() => buscarLetra(partida), 5000)
+    
+    const findin = letras_juego.findIndex(i => i.name == letra_el);
+    if(findin != -1) {
+        if(!(letras_juego[findin].precio == PREMIOS.alto && letras_juego[findin].marcador > 2 && ganancias < ganancia_minima)) {
+            letra_index = findin;
+        }
+    }
+
+    // Si la carta elegida es de premio alto y la ganancia mínima aún no se ha alcanzado
+    /*if (cartas_info[letra_index].precio === PREMIOS.alto && ganancias < ganancia_minima) {
+        // Si la carta ya ha alcanzado 2 puntos, evitar que llegue a 4 puntos para no ganar
+        if (letras_juego[letra_index].marcador >= 3) {
+            // Seleccionar otra letra de premio menor o medio
+            letra_index = letrasPonderadas.filter(
+                idx => cartas_info[idx].precio !== PREMIOS.alto || letras_juego[idx].marcador < 3
+            )[Math.floor(Math.random() * letrasPonderadas.length)];
+        }
+    }*/
+
+    // Sumar un punto a la letra elegida
+    if(letra_index != null) {
+        letras_juego[letra_index].marcador++;
+        letra_elegida = letras_juego[letra_index].name;
+    
+        if (letras_juego[letra_index].marcador >= 4) {
+            // Si la letra ha llegado a 4 puntos y puede ganar, enviamos la notificación de ganador
+            letras_juego[letra_index].ganador = true;
+            sendSocket('elegirletra', { letra: letra_elegida });
+            sendSocket('ganador', { index: letra_index, userid: letras_juego[letra_index].userid });
+    
+            // Calcular la ganancia
+            const suma = cartas_info.length * precio_letra;
+            const ganancia = suma - letras_juego[letra_index].precio;
+            ganancias += ganancia;
+            console.log(`Ganancia obtenida: ${ganancia} - Total: ${ganancias}`);
+    
+            // Actualizar el saldo del usuario
+            const user = await Usuario.findOne({ _id: letras_juego[letra_index].userid });
+            if (user) {
+                const nuevo_saldo = user.saldo + letras_juego[letra_index].precio;
+                await Usuario.updateOne({ _id: user._id }, { saldo: nuevo_saldo });
+                sendSocketToUser(user._id, "actualizardata", { saldo: nuevo_saldo });
+            }
+    
+            setTimeout(restartGame, 5000);
+        } else {
+            // Enviar la letra elegida al frontend
+            sendSocket('elegirletra', { letra: letra_elegida });
+            setTimeout(() => buscarLetra(partida), 5000);
+        }
+    } else {
+        setTimeout(() => buscarLetra(partida), 5000);
     }
 }
 
